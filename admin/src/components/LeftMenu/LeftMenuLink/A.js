@@ -35,7 +35,7 @@ const A = styled.a`
 
   &.linkActive {
     color: white !important;
-    border-left: 0.3rem solid ${theme.main.colors.strapi.blue};
+    border-left: 0.3rem solid ${theme.main.colors.won.orange};
   }
   `}
 `;
