@@ -7,6 +7,10 @@
 const axios = require('axios')
 const slugify = require('slugify');
 
+function timeout(ms){
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
 async function getGameInfo(slug){
   const jsdom = require('jsdom')
   const {JSDOM} = jsdom;
@@ -31,7 +35,7 @@ async function create(name,entityName){
   if(!item){
     return await strapi.services[entityName].create({
       name,
-      slug:slugify(name, {lower: true}),
+      slug:slugify(name, {lower: true}).replace(/[^A-Za-z0-9-_.~]/g, ""),
     })
   }
 }
@@ -55,7 +59,7 @@ async function createManyToManyData(products){
     publishers[publisher] = true;
   })
 
-  return Promisse.all([
+  return Promise.all([
     ...Object.keys(developers).map((name)=> create(name,"developer")),
     ...Object.keys(publishers).map((name)=> create(name,"publisher")),
     ...Object.keys(categories).map((name)=> create(name,"category")),
@@ -64,31 +68,42 @@ async function createManyToManyData(products){
 
 }
 
+async function setImage({image,game,field = "cover"}){
+  const url = `https:${image}_bg_crop_1680x655.jpg`
+  const {data} = await axios.get(url,{responseType: "arraybuffer"})
+  console.log(data);
+  return null
+}
+
 async function createGames(products) {
   await Promise.all(
-    products.map((product)=>{
+    products.map(async (product)=>{
       const item = await getByName(product.title,"game")
 
       if(!item){
         console.log(`Creating ${product.title}...`)
         const game = await strapi.services.game.create({
           name:product.title,
-          slug:product.slug.replace(/_/g, "-"),
+          slug:slugify(product.slug, {lower: true}),
           price:product.price.amount,
           release: new Date(
-            Number(product.globalReleaseDate * 1000).toISOString()
-          ),
-          caterogies:await Promise.all(
+            Number(product.globalReleaseDate)* 1000
+          ).toISOString(),
+          categories:await Promise.all(
             product.genres.map((name)=>getByName(name,"category"))
           ),
           platforms:await Promise.all(
-            product.supportedOperationalSystems.map((name)=>getByName(name,"platform"))
+            product.supportedOperatingSystems.map((name)=>getByName(name,"platform"))
           ),
           developers: [await getByName(product.developer,"developer")],
           publisher: [await getByName(product.publisher,"publisher")],
           ...(await getGameInfo(product.slug))
         });
-
+        setImage({image:product.image,game});
+        await Promise.all(
+          product.gallery.slice(0,5).map(url => setImage({image:url,game,field:"gallery"}))
+        );
+        await timeout(2000);
         return game
       }
   })
@@ -99,9 +114,8 @@ module.exports = {
   populate: async (params) =>{
     const gogApiUrl = `https://www.gog.com/games/ajax/filtered?mediaType=game&page=1&sort=popularity`
     const {data : { products }} = await axios.get(gogApiUrl)
-    const gameInfo = await getGameInfo(products[1].slug)
-    await createManyToManyData([products]);
-    await createGames([products])
+    await createManyToManyData([products[1],products[2]]);
+    await createGames([products[1],products[2]])
   }
 
 };
