@@ -6,9 +6,14 @@
  */
 const axios = require('axios')
 const slugify = require('slugify');
+const qs = require('querystring');
 
 function timeout(ms){
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function Exception(e){
+  return {e, data: e.data && e.data.errors && e.data.errors}
 }
 
 async function getGameInfo(slug){
@@ -26,7 +31,7 @@ async function getGameInfo(slug){
       description:description.innerHTML,
     }
   }catch(err){
-    console.log(err,"07")
+    console.log("GameInfo",Exception(err))
   }
 
 }
@@ -35,7 +40,7 @@ async function getByName(name,entityName){
     const item = await strapi.services[entityName].find({name})
     return item.length ? item[0] : null
   }catch(err){
-    console.log(err,"06")
+    console.log("ByName",Exception(err))
   }
 
 }
@@ -50,7 +55,7 @@ async function create(name,entityName){
       })
     }
   }catch(err){
-    console.log(err,"05")
+    console.log("Create",Exception(err))
   }
 
 }
@@ -82,7 +87,7 @@ async function createManyToManyData(products){
       ...Object.keys(platforms).map((name)=> create(name,"platform"))
     ])
   }catch(err){
-    console.log(err,"04")
+    console.log("ManyToMany",Exception(err))
   }
 }
 
@@ -111,62 +116,67 @@ async function setImage({image,game,field = "cover"}){
 
     await timeout(2000);
   }catch(err){
-    console.log(err,"03")
+    console.log("Image",Exception(err))
   }
 
 }
 
 async function createGames(products) {
-  await Promise.all(
-    products.map(async (product) => {
-      const item = await getByName(product.title, "game");
+  try{
+    await Promise.all(
+      products.map(async (product) => {
+        const item = await getByName(product.title, "game");
 
-      if (!item) {
-        console.info(`Creating: ${product.title}...`);
+        if (!item) {
+          console.info(`Creating: ${product.title}...`);
 
-        const game = await strapi.services.game.create({
-          name: product.title,
-          slug: product.slug.replace(/_/g, "-"),
-          price: product.price.amount,
-          release_date: new Date(
-            Number(product.globalReleaseDate) * 1000
-          ).toISOString(),
-          categories: await Promise.all(
-            product.genres.map((name) => getByName(name, "category"))
-          ),
-          platforms: await Promise.all(
-            product.supportedOperatingSystems.map((name) =>
-              getByName(name, "platform")
-            )
-          ),
-          developers: [await getByName(product.developer, "developer")],
-          publisher: await getByName(product.publisher, "publisher"),
-          ...(await getGameInfo(product.slug)),
-        });
-        await setImage({ image: product.image, game });
-        await Promise.all(
-          product.gallery
-            .slice(0, 5)
-            .map((url) => setImage({ image: url, game, field: "gallery" }))
-        );
+          const game = await strapi.services.game.create({
+            name: product.title,
+            slug: product.slug.replace(/_/g, "-"),
+            price: product.price.amount,
+            release_date: new Date(
+              Number(product.globalReleaseDate) * 1000
+            ).toISOString(),
+            categories: await Promise.all(
+              product.genres.map((name) => getByName(name, "category"))
+            ),
+            platforms: await Promise.all(
+              product.supportedOperatingSystems.map((name) =>
+                getByName(name, "platform")
+              )
+            ),
+            developers: [await getByName(product.developer, "developer")],
+            publisher: await getByName(product.publisher, "publisher"),
+            ...(await getGameInfo(product.slug)),
+          });
+          await setImage({ image: product.image, game });
+          await Promise.all(
+            product.gallery
+              .slice(0, 5)
+              .map((url) => setImage({ image: url, game, field: "gallery" }))
+          );
 
-        await timeout(2000);
+          await timeout(2000);
 
-        return game;
-      }
-    })
-  );
+          return game;
+        }
+      })
+    );
+  }catch(err){
+    console.log("createGames",Exception(err))
+  }
+
 }
 
 module.exports = {
   populate: async (params) =>{
     try{
-      const gogApiUrl = `https://www.gog.com/games/ajax/filtered?mediaType=game&page=1&sort=popularity`
+      const gogApiUrl = `https://www.gog.com/games/ajax/filtered?mediaType=game&${qs.stringify(params)}`;
       const {data : { products }} = await axios.get(gogApiUrl)
       await createManyToManyData([products[1],products[2]]);
       await createGames([products[1],products[2]])
     }catch(err){
-      console.log(err,"01")
+      console.log("populate",Exception(err))
     }
   }
 
